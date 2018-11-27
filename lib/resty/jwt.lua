@@ -777,6 +777,9 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
         cert, err = evp.Cert:new(secret)
       elseif secret:find("PUBLIC KEY") then
         cert, err = evp.PublicKey:new(secret)
+      else
+        -- allow to use secret in DER format, digital, not base64 encoded
+        cert, err = evp.Cert:new(secret)
       end
       if not cert then
         jwt_obj[str_const.reason] = "Decode secret is not a valid cert/public key"
