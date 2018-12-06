@@ -58,7 +58,13 @@ local str_const = {
   HS256 = "HS256",
   HS512 = "HS512",
   RS256 = "RS256",
+  RS384 = "RS384",
   RS512 = "RS512",
+  RS_ALGS = {
+    RS256 = "SHA256",
+    RS384 = "SHA384",
+    RS512 = "SHA512",
+  },
   A128CBC_HS256 = "A128CBC-HS256",
   A256CBC_HS512 = "A256CBC-HS512",
   DIR = "dir",
@@ -495,12 +501,12 @@ function _M.sign(self, secret_key, jwt_obj)
   elseif alg == str_const.HS512 then
     local secret_str = get_secret_str(secret_key, jwt_obj)
     signature = hmac:new(secret_str, hmac.ALGOS.SHA512):final(message)
-  elseif alg == str_const.RS256 then
+  elseif str_const.RS_ALGS[alg] then
     local signer, err = evp.RSASigner:new(secret_key)
     if not signer then
       error({reason="signer error: " .. err})
     end
-    signature = signer:sign(message, evp.CONST.SHA256_DIGEST)
+    signature = signer:sign(message, str_const.RS_ALGS[alg])
   else
     error({reason="unsupported alg: " .. alg})
   end
@@ -753,7 +759,7 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
       -- signature check
       jwt_obj[str_const.reason] = "signature mismatch: " .. jwt_obj[str_const.signature]
     end
-  elseif alg == str_const.RS256 or alg == str_const.RS512 then
+  elseif str_const.RS_ALGS[alg] then
     local cert, err
     if self.trusted_certs_file ~= nil then
       local cert_str = extract_certificate(jwt_obj, self.x5u_content_retriever)
@@ -779,6 +785,7 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
         cert, err = evp.PublicKey:new(secret)
       end
       if not cert then
+          print"not cert, blya"
         jwt_obj[str_const.reason] = "Decode secret is not a valid cert/public key"
         return jwt_obj
       end
@@ -808,11 +815,7 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
     local verified = false
     local err = "verify error: reason unknown"
 
-    if alg == str_const.RS256 then
-      verified, err = verifier:verify(message, sig, evp.CONST.SHA256_DIGEST)
-    elseif alg == str_const.RS512 then
-      verified, err = verifier:verify(message, sig, evp.CONST.SHA512_DIGEST)
-    end
+    verified, err = verifier:verify(message, sig, str_const.RS_ALGS[alg])
     if not verified then
       jwt_obj[str_const.reason] = err
     end

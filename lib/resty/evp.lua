@@ -7,13 +7,6 @@ local _M = { _VERSION = "0.2.0" }
 local ngx = ngx
 
 
-local CONST = {
-    SHA256_DIGEST = "SHA256",
-    SHA512_DIGEST = "SHA512",
-}
-_M.CONST = CONST
-
-
 -- Reference: https://wiki.openssl.org/index.php/EVP_Signing_and_Verifying
 ffi.cdef[[
 // Error handling
