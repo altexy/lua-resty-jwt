@@ -65,6 +65,11 @@ local str_const = {
     RS384 = "SHA384",
     RS512 = "SHA512",
   },
+  ES_ALGS = {
+    ES256 = "SHA256",
+    ES384 = "SHA384",
+    ES512 = "SHA512",
+  },
   A128CBC_HS256 = "A128CBC-HS256",
   A256CBC_HS512 = "A256CBC-HS512",
   DIR = "dir",
@@ -507,6 +512,12 @@ function _M.sign(self, secret_key, jwt_obj)
       error({reason="signer error: " .. err})
     end
     signature = signer:sign(message, str_const.RS_ALGS[alg])
+  elseif str_const.ES_ALGS[alg] then
+      local signer, err = evp.ESSigner:new(secret_key)
+      if not signer then
+          error({reason="signer error: " .. err})
+      end
+      signature = signer:sign(message, str_const.ES_ALGS[alg])
   else
     error({reason="unsupported alg: " .. alg})
   end
@@ -759,7 +770,7 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
       -- signature check
       jwt_obj[str_const.reason] = "signature mismatch: " .. jwt_obj[str_const.signature]
     end
-  elseif str_const.RS_ALGS[alg] then
+  elseif str_const.RS_ALGS[alg] or str_const.ES_ALGS[alg] then
     local cert, err
     if self.trusted_certs_file ~= nil then
       local cert_str = extract_certificate(jwt_obj, self.x5u_content_retriever)
@@ -781,11 +792,11 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
       local err
       if secret:find("CERTIFICATE") then
         cert, err = evp.Cert:new(secret)
+        if cert then print"Cert OK"  end
       elseif secret:find("PUBLIC KEY") then
         cert, err = evp.PublicKey:new(secret)
       end
       if not cert then
-          print"not cert, blya"
         jwt_obj[str_const.reason] = "Decode secret is not a valid cert/public key"
         return jwt_obj
       end
@@ -815,7 +826,8 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
     local verified = false
     local err = "verify error: reason unknown"
 
-    verified, err = verifier:verify(message, sig, str_const.RS_ALGS[alg])
+    local hash = str_const.RS_ALGS[alg] or str_const.ES_ALGS[alg]
+    verified, err = verifier:verify(message, sig, hash)
     if not verified then
       jwt_obj[str_const.reason] = err
     end

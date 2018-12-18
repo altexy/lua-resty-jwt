@@ -32,11 +32,19 @@ RSA * PEM_read_bio_RSAPrivateKey(BIO *bp, RSA **rsa, pem_password_cb *cb,
 RSA * PEM_read_bio_RSAPublicKey(BIO *bp, RSA **rsa, pem_password_cb *cb,
                                 void *u);
 
+//EC_KEY
+typedef struct ec_key_st EC_KEY;
+int EC_KEY_size(const EC_KEY *ec_key);
+void EC_KEY_free(EC_KEY *ec_key);
+EC_KEY * 	PEM_read_bio_ECPrivateKey (BIO *bp, EC_KEY **key, pem_password_cb *cb, void *u);
+
+
 // EVP PKEY
 typedef struct evp_pkey_st EVP_PKEY;
 typedef struct engine_st ENGINE;
 EVP_PKEY *EVP_PKEY_new(void);
 int EVP_PKEY_set1_RSA(EVP_PKEY *pkey,RSA *key);
+int EVP_PKEY_set1_EC_KEY(EVP_PKEY *pkey,EC_KEY *key);
 EVP_PKEY *EVP_PKEY_new_mac_key(int type, ENGINE *e,
                                const unsigned char *key, int keylen);
 void EVP_PKEY_free(EVP_PKEY *key);
@@ -220,6 +228,81 @@ function RSASigner.sign(self, message, digest_name)
     return ffi.string(buf, len[0]), nil
 end
 
+local ESSigner = {}
+_M.ESSigner = ESSigner
+
+--- Create a new ESSigner
+-- @param pem_private_key A private key string in PEM format
+-- @returns ESSigner, err_string
+function ESSigner.new(self, pem_private_key)
+    local bio = _C.BIO_new(_C.BIO_s_mem())
+    ffi.gc(bio, _C.BIO_vfree)
+    if _C.BIO_puts(bio, pem_private_key) < 0 then
+        return _err()
+    end
+
+    -- TODO might want to support password protected private keys...
+    local ec_key = _C.PEM_read_bio_ECPrivateKey(bio, nil, nil, nil)
+    if ec_key == nil then
+        print"no ec_key"
+        return _err()
+    end
+    ffi.gc(ec_key, _C.EC_KEY_free)
+
+    local evp_pkey = _C.EVP_PKEY_new()
+    if evp_pkey == nil then
+        print"no evp_pkey"
+        return _err()
+    end
+    ffi.gc(evp_pkey, _C.EVP_PKEY_free)
+    if _C.EVP_PKEY_set1_EC_KEY(evp_pkey, ec_key) ~= 1 then
+        print"EVP_PKEY_set1_EC_KEY() error"
+        return _err()
+    end
+    self.evp_pkey = evp_pkey
+    return self, nil
+end
+
+
+--- Sign a message
+-- @param message The message to sign
+-- @param digest_name The digest format to use (e.g., "SHA256")
+-- @returns signature, error_string
+function ESSigner.sign(self, message, digest_name)
+    local buf = ffi.new("unsigned char[?]", 1024)
+    local len = ffi.new("size_t[1]", 1024)
+
+    local ctx = ctx_new()
+    if ctx == nil then
+        return _err()
+    end
+    ctx_free(ctx)
+
+    local md = _C.EVP_get_digestbyname(digest_name)
+    if md == nil then
+        print"no md"
+        return _err()
+    end
+
+    if _C.EVP_DigestInit_ex(ctx, md, nil) ~= 1 then
+        print"EVP_DigestInit_ex error"
+        return _err()
+    end
+    local ret = _C.EVP_DigestSignInit(ctx, nil, md, nil, self.evp_pkey)
+    if  ret ~= 1 then
+        print"EVP_DigestSignInit error"
+        return _err()
+    end
+    if _C.EVP_DigestUpdate(ctx, message, #message) ~= 1 then
+        print"EVP_DigestUpdate error"
+        return _err()
+    end
+    if _C.EVP_DigestSignFinal(ctx, buf, len) ~= 1 then
+        print"EVP_DigestSignFinal error"
+        return _err()
+    end
+    return ffi.string(buf, len[0]), nil
+end
 
 
 local RSAVerifier = {}
@@ -413,6 +496,7 @@ function PublicKey.new(self, payload)
     local pkey
     if payload:find('-----BEGIN') then
         if _C.BIO_puts(bio, payload) < 0 then
+            print"BIO_puts error"
             return _err()
         end
         pkey = _C.PEM_read_bio_PUBKEY(bio, nil, nil, nil)
@@ -423,6 +507,7 @@ function PublicKey.new(self, payload)
         pkey = _C.d2i_PUBKEY_bio(bio, nil)
     end
     if pkey == nil then
+        print"no pkey"
         return _err()
     end
     ffi.gc(pkey, _C.EVP_PKEY_free)
