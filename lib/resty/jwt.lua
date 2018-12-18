@@ -831,6 +831,67 @@ function _M.verify_jwt_obj(self, secret, jwt_obj, ...)
 
 end
 
+--@function convert PEM certificate into binary public key (EVP_PKEY)
+--@param secret - PEM formatted certificate
+--@return EVP_PKEY
+function _M.pem_cert_to_public_key(secret)
+  local cert, err = evp.Cert:new(secret)
+  if not cert then
+    return nil, err
+  end
+  return cert.public_key
+end
+
+--@function verify jwt object using binary public key
+-- so support only assymetric algs
+--@param evp_pkey - EVP_PKEY
+--@param jwt_object
+--@leeway
+--@return verified jwt payload or jwt object with error code
+function _M.verify_jwt_obj_evp_pkey(self, evp_pkey, jwt_obj, ...)
+  if not jwt_obj.valid then
+    return jwt_obj
+  end
+
+  -- validate any claims that have been passed in
+  if not validate_claims(self, jwt_obj, ...) then
+    return jwt_obj
+  end
+
+  local alg = jwt_obj[str_const.header][str_const.alg]
+  -- supported algs are checked on upper level
+
+  local jwt_str = string_format(str_const.regex_jwt_join_str, jwt_obj.raw_header , jwt_obj.raw_payload , jwt_obj.signature)
+
+  local verifier = evp.RSAVerifier:new { public_key = evp_pkey }
+
+  -- assemble jwt parts
+  local raw_header = get_raw_part(str_const.header, jwt_obj)
+  local raw_payload = get_raw_part(str_const.payload, jwt_obj)
+
+  local message =string_format(str_const.regex_join_msg, raw_header ,  raw_payload)
+  local sig = _M:jwt_decode(jwt_obj[str_const.signature], false)
+
+  if not sig then
+    jwt_obj[str_const.reason] = "Wrongly encoded signature"
+    return jwt_obj
+  end
+
+  local verified = false
+  local err = "verify error: reason unknown"
+
+  verified, err = verifier:verify(message, sig, str_const.RS_ALGS[alg])
+  if not verified then
+    jwt_obj[str_const.reason] = err
+  end
+
+  if not jwt_obj[str_const.reason] then
+    jwt_obj[str_const.verified] = true
+    jwt_obj[str_const.reason] = str_const.everything_awesome
+  end
+  return jwt_obj
+
+end
 
 function _M.verify(self, secret, jwt_str, ...)
   local jwt_obj = _M.load_jwt(self, jwt_str, secret)
